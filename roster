@@ -1,1 +1,742 @@
-https://sbionline-my.sharepoint.com/:u:/g/personal/nac_helpdesk_sbi_co_in/EWcbUcHblqZJuRKdC1A21lgBSgZwW9uAYE_ZlIQJKwK6wQ?e=dfefqA
+package com.action;
+
+import java.io.IOException;
+import java.io.InputStream;
+import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.SQLException;
+import java.text.SimpleDateFormat;
+import java.util.Collections;
+import java.util.Date;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.stream.Collectors;
+
+import jakarta.servlet.ServletException;
+import jakarta.servlet.annotation.MultipartConfig;
+import jakarta.servlet.annotation.WebServlet;
+import jakarta.servlet.http.HttpServlet;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
+import jakarta.servlet.http.Part;
+
+
+import com.jdbc.DBUtilityAuto;
+
+import org.apache.poi.ss.usermodel.Cell;
+import org.apache.poi.ss.usermodel.Row;
+import org.apache.poi.ss.usermodel.Workbook;
+import org.apache.poi.xssf.usermodel.XSSFWorkbook;
+/**
+ * Servlet implementation class ExcelRosterAction
+ */
+@WebServlet("/ExcelRosterAction")
+@MultipartConfig
+public class ExcelRosterAction extends HttpServlet {
+	private static final long serialVersionUID = 1L;
+	   
+    /**
+     * @see HttpServlet#HttpServlet()
+     */
+    public ExcelRosterAction() {
+        super();
+        // TODO Auto-generated constructor stub
+    }
+
+	/**
+	 * @see HttpServlet#doPost(HttpServletRequest request, HttpServletResponse response)
+	 */
+    protected void doPost(HttpServletRequest request, HttpServletResponse response) throws ServletException, IOException {
+		// TODO Auto-generated method stub
+		String monthYr=request.getParameter("myMonth");
+		 String team= request.getParameter("m_strroles");
+		 String performby= request.getParameter("username");
+		 System.out.println("Team :- "+ team);
+		 System.out.println(monthYr);
+		 String[] s= monthYr.split("-");
+		 String year=s[0];
+		 String monthId=s[1];
+		String month=getMonthName(monthId);
+		System.out.println(month);
+		 //String team="Process Improvement";
+		 String monthYear=month+"_"+year;
+		 System.out.println(monthYear);
+		 
+		 String selectedYear= s[0];
+		   String selectedMonth= s[1];
+		   int noOfDays=0;
+		 if(selectedMonth != null && selectedYear != null){
+			    int year1= Integer.parseInt(selectedYear);
+			   // int month=Integer.parseInt(selectedMonth);
+			    System.out.println("Year :-"+year);
+			    
+			    if(selectedMonth.equalsIgnoreCase("01") || selectedMonth.equalsIgnoreCase("03") || selectedMonth.equalsIgnoreCase("05") || selectedMonth.equalsIgnoreCase("07") || selectedMonth.equalsIgnoreCase("08") || selectedMonth.equalsIgnoreCase("10") || selectedMonth.equalsIgnoreCase("12")) {
+			    	  noOfDays=31;	
+			    	} else if(selectedMonth.equalsIgnoreCase("04") || selectedMonth.equalsIgnoreCase("06") || selectedMonth.equalsIgnoreCase("09") || selectedMonth.equalsIgnoreCase("11")) {
+			    		noOfDays=30;
+			    	} else if(selectedMonth.equalsIgnoreCase("02")) {
+			    		if((year1 % 400 == 0) || (year1 % 100 != 0) && (year1 % 4 == 0)) {
+			    			noOfDays=29;
+			    		}else {
+			    			noOfDays=28;
+			    		}
+			    	}
+			    }
+		 
+			    System.out.println("No Of Days :-"+noOfDays);
+			    
+		 boolean dataExists=checkDataExists(monthYear,team);
+		Connection conn= DBUtilityAuto.getReportDBConnection();
+		
+		Part filePart = request.getPart("file");
+		if(team != null) {
+		try{
+			InputStream inputstream = filePart.getInputStream();
+			try {
+				Class.forName("org.apache.xmlbeans.XmlException");
+				System.out.println("XmlBeans found in classpath !");
+			}catch(ClassNotFoundException e) {
+				System.out.println("Xml not found");
+			}
+			Workbook workbook = new XSSFWorkbook(inputstream);
+	            org.apache.poi.ss.usermodel.Sheet sheet =  workbook.getSheetAt(0);
+
+	            // Extract column headers
+	            Row headerRow = ((org.apache.poi.ss.usermodel.Sheet) sheet).getRow(0);
+	            if (headerRow == null) {
+	                throw new ServletException("No header row found in the Excel file.");
+	            }
+
+	            // Create a map for column names and their indices
+	            Map<String, Integer> columnMap = new LinkedHashMap<>();
+				List<String> foundColumns = new ArrayList<>();
+	            int j=1;
+	            for (int i = 0; i < headerRow.getLastCellNum(); i++) {
+	                //String columnName = headerRow.getCell(i).getStringCellValue().toString();
+	            	Cell cell = headerRow.getCell(i);
+	            	String columnName = "";
+	            	if (cell != null) {
+	            	    switch (cell.getCellType()) {
+	            	        case STRING:
+	            	            columnName = cell.getStringCellValue();
+	            	            break;
+	            	        case NUMERIC:
+	            	            columnName = String.valueOf((int) cell.getNumericCellValue()); // Convert numeric values to string
+	            	            break;
+	            	        case FORMULA:
+	            	            columnName = cell.getCellFormula();
+	            	            break;
+	            	        case BOOLEAN:
+	            	            columnName = String.valueOf(cell.getBooleanCellValue());
+	            	            break;
+	            	        
+	            	        default:
+	            	            columnName = "day_" + j; // Assign a default column name
+	            	    }
+	            	}
+	                System.out.println("columnName"+columnName);
+	                columnMap.put(columnName, i);
+					foundColumns.add(columnName);
+	            }
+				
+				    // Debug: Print all column names found
+	            System.out.println("Columns found in Excel (" + foundColumns.size() + "): " + foundColumns);
+	            System.out.println("Expected days for " + month + " " + year + ": " + noOfDays);
+	            System.out.println("Expected total columns: " + (5 + noOfDays));
+
+	         // Check for required FIXED columns (exact match NOT required - case insensitive)
+	            List<String> requiredFixedColumns = Arrays.asList("ADID", "Name", "Team", "Position", "Monthyear");
+	            List<String> missingColumns = new ArrayList<>();
+
+	            // Check if fixed columns exist (case-insensitive)
+	            for (String requiredCol : requiredFixedColumns) {
+	              boolean columnFound = false;
+	              for (String foundCol : foundColumns) {
+	                if (foundCol.equalsIgnoreCase(requiredCol)) {
+	                  columnFound = true;
+	                  break;
+	                }
+	              }
+	              if (!columnFound) {
+	                missingColumns.add(requiredCol);
+	              }
+	            }
+
+	            // Validate total column count
+	            int expectedTotalColumns = 5 + noOfDays; // 5 fixed columns + day columns
+	            int actualColumns = foundColumns.size();
+	            if (actualColumns != expectedTotalColumns) {
+	              String errorMsg = "Column count mismatch.<br>";
+	              errorMsg += "For " + month + " " + year + " (" + noOfDays + " days), expected " +
+	                    expectedTotalColumns + " columns<br>";
+	              errorMsg += "(5 fixed columns: ADID, Name, Team, Position, Monthyear + " + noOfDays + " day columns)<br>";
+	              errorMsg += "But found " + actualColumns + " columns in Excel.<br><br>";
+	              if (actualColumns < expectedTotalColumns) {
+	                errorMsg += "Missing " + (expectedTotalColumns - actualColumns) + " column(s).<br>";
+	              } else {
+	                errorMsg += "Extra " + (actualColumns - expectedTotalColumns) + " column(s).<br>";
+	              }
+	              // Show what we found
+	              errorMsg += "<br>Columns found:<br>";
+	              int colNum = 1;
+	              for (String col : foundColumns) {
+	                boolean isRequired = false;
+	                for (String reqCol : requiredFixedColumns) {
+	                  if (col.equalsIgnoreCase(reqCol)) {
+	                    isRequired = true;
+	                    break;
+	                  }
+	                }
+	                if (isRequired) {
+	                  errorMsg += colNum + ". <strong>" + col + "</strong> (required)<br>";
+	                } else {
+	                  errorMsg += colNum + ". " + col + " (day column)<br>";
+	                }
+	                colNum++;
+	              }
+	              request.setAttribute("errorMessage", errorMsg);
+	              request.getRequestDispatcher("/jsp/ExcelRoster.jsp").forward(request, response);
+	              return;
+	            }
+
+	            // If there are missing fixed columns - ONLY check for missing, not for wrong case
+	            if (!missingColumns.isEmpty()) {
+	              StringBuilder errorMsg = new StringBuilder();
+	              errorMsg.append("Excel header format error.<br>");
+	              errorMsg.append("Missing required columns: ").append(String.join(", ", missingColumns)).append("<br>");
+	              errorMsg.append("<br>Required header format (case-insensitive):<br>");
+	              errorMsg.append("1. ADID<br>");
+	              errorMsg.append("2. Name<br>");
+	              errorMsg.append("3. Team<br>");
+	              errorMsg.append("4. Position<br>");
+	              errorMsg.append("5. Monthyear<br>");
+	              errorMsg.append("6 to ").append(5 + noOfDays).append(". ").append(noOfDays).append(" day columns (any names)<br>");
+	              errorMsg.append("Total columns must be: ").append(5 + noOfDays);
+	              request.setAttribute("errorMessage", errorMsg.toString());
+	              request.getRequestDispatcher("/jsp/ExcelRoster.jsp").forward(request, response);
+	              return;
+	            }
+	            
+	         // Create a new column map with standardized column names (case corrected)
+	            Map<String, Integer> standardizedColumnMap = new LinkedHashMap<>();
+
+	            // First add fixed columns with STANDARD names (ADID, Name, Team, Position, Monthyear)
+	            for (String requiredCol : requiredFixedColumns) {
+	              for (Map.Entry<String, Integer> entry : columnMap.entrySet()) {
+	                if (entry.getKey().equalsIgnoreCase(requiredCol)) {
+	                  standardizedColumnMap.put(requiredCol, entry.getValue());
+	                  break;
+	                }
+	              }
+	            }
+
+	            // Then add all day columns (keep their original names)
+	            for (Map.Entry<String, Integer> entry : columnMap.entrySet()) {
+	              boolean isFixedColumn = false;
+	              for (String fixedCol : requiredFixedColumns) {
+	                if (entry.getKey().equalsIgnoreCase(fixedCol)) {
+	                  isFixedColumn = true;
+	                  break;
+	                }
+	              }
+	              if (!isFixedColumn) {
+	                standardizedColumnMap.put(entry.getKey(), entry.getValue());
+	              }
+	            }
+
+	            // Replace the original columnMap with the standardized one
+	            columnMap = standardizedColumnMap;
+
+	            // Update foundColumns list for debugging
+	            foundColumns = new ArrayList<>(columnMap.keySet());
+
+	            // Debug: Print all column names found after standardization
+	            System.out.println("Columns after standardization (" + foundColumns.size() + "): " + foundColumns);
+	            
+	         // ---------- VALIDATE TEAM COLUMN WITH ALIAS SUPPORT ----------
+	            boolean hasInvalidTeam = false;
+	            StringBuilder teamErrors = new StringBuilder();
+	            String normalizedSelectedTeam = team.replaceAll("\\s+", "").toLowerCase();
+
+	            for (int i = 1; i <= sheet.getLastRowNum(); i++) {
+	                Row row = sheet.getRow(i);
+	                if (row == null) continue;
+	                
+	                Cell teamCell = row.getCell(columnMap.get("Team"));
+	                String teamValue = getCellValue(teamCell);
+	                
+	                if (teamValue == null || teamValue.trim().isEmpty()) {
+	                    hasInvalidTeam = true;
+	                    teamErrors.append("Row ").append(i + 1).append(": Empty Team, ");
+	                    continue;
+	                }
+	                
+	                // Normalize and check for aliases
+	                String normalizedTeamValue = teamValue.replaceAll("\\s+", "").toLowerCase();
+	                String standardTeamName = null;
+	                
+	                // Map aliases to standard team names
+	                if (normalizedTeamValue.equals("issuemanagement") || 
+	                    normalizedTeamValue.equals("mails")) {
+	                    standardTeamName = "Incident Management";
+	                } else if (normalizedTeamValue.equals("monitoring")) {
+	                    standardTeamName = "Event Management";
+	                } else if (normalizedTeamValue.equals("score")) {
+	                    standardTeamName = "Service Desk";
+	                } else if (normalizedTeamValue.equals("adhoc")) {
+	                    standardTeamName = "Service Reporting Management";
+	                } else if (normalizedTeamValue.equals("automation")) {
+	                    standardTeamName = "Process Improvement";
+	                }
+	                
+	                // Get the normalized value for comparison
+	                String normalizedCompareValue = standardTeamName != null ? 
+	                                               standardTeamName.replaceAll("\\s+", "").toLowerCase() : 
+	                                               normalizedTeamValue;
+	                
+	                // Check if it matches the selected team
+	                if (!normalizedCompareValue.equals(normalizedSelectedTeam)) {
+	                    hasInvalidTeam = true;
+	                    String displayValue = standardTeamName != null ? 
+	                                         standardTeamName + " (from alias: '" + teamValue + "')" : 
+	                                         teamValue;
+	                    teamErrors.append("Row ").append(i + 1).append(": '")
+	                           .append(displayValue).append("' should be '").append(team).append("', ");
+	                }
+	            }
+
+	            if (hasInvalidTeam) {
+	                String errorMsg = "Team column errors:<br>";
+	                errorMsg += teamErrors.substring(0, Math.max(0, teamErrors.length() - 2));
+	                errorMsg += "<br><br>All rows should have Team as: <strong>" + team + "</strong>";
+	                errorMsg += "<br><br>Accepted values and their aliases:<br>";
+	                errorMsg += "• Incident Management (or: issue management, mails, ISSUE MANAGEMENT)<br>";
+	                errorMsg += "• Event Management (or: monitoring, MONITORING)<br>";
+	                errorMsg += "• Service Desk (or: score, SCORE)<br>";
+	                errorMsg += "• Service Reporting Management (or: adhoc, ADHOC)<br>";
+	                errorMsg += "• Process Improvement (or: automation, AUTOMATION)";
+	                
+	                request.setAttribute("errorMessage", errorMsg);
+	                request.getRequestDispatcher("/jsp/ExcelRoster.jsp").forward(request, response);
+	                return;
+	            }
+	            
+	            // Validate Monthyear column values
+	            boolean hasInvalidMonthYear = false;
+	            StringBuilder monthYearErrors = new StringBuilder();
+	           
+	            for (int i = 1; i <= sheet.getLastRowNum(); i++) {
+	              Row row = sheet.getRow(i);
+	              if (row == null) continue;
+	             
+	              Cell monthYearCell = row.getCell(columnMap.get("Monthyear"));
+	              String monthYearValue = getCellValue(monthYearCell);
+	             
+	              if (monthYearValue == null || monthYearValue.trim().isEmpty()) {
+	                hasInvalidMonthYear = true;
+	                monthYearErrors.append("Row ").append(i + 1).append(": Empty Monthyear, ");
+	              } else if (!monthYearValue.equalsIgnoreCase(monthYear)) {
+	                hasInvalidMonthYear = true;
+	                monthYearErrors.append("Row ").append(i + 1).append(": '")
+	                       .append(monthYearValue).append("' should be '").append(monthYear).append("', ");
+	              }
+	            }
+	           
+	            if (hasInvalidMonthYear) {
+	              String errorMsg = "Monthyear column errors:<br>";
+	              errorMsg += monthYearErrors.substring(0, Math.max(0, monthYearErrors.length() - 2));
+	              errorMsg += "<br>All rows should have Monthyear as: " + monthYear;
+	             
+	              request.setAttribute("errorMessage", errorMsg);
+	              request.getRequestDispatcher("/jsp/ExcelRoster.jsp").forward(request, response);
+	              return;
+	            }
+	            
+	            if(dataExists) {
+	            	String deleteQuery="delete from rostertable where team='"+team+"' and UPPER(monthyear)=UPPER('"+monthYear+"')";
+	            	PreparedStatement ptmt= conn.prepareStatement(deleteQuery);
+	            	ptmt.executeQuery();
+	            	
+	            	String deleteQuerybkp="delete from rostertable_bkp where team='"+team+"' and UPPER(monthyear)=UPPER('"+monthYear+"')";
+	            	PreparedStatement ptmtBkp= conn.prepareStatement(deleteQuerybkp);
+	            	ptmtBkp.executeQuery();
+	            	
+	            }
+	            System.out.println("columnMap : " +columnMap);
+	            String insertQuery= generateInsertSQL(noOfDays);
+	            String insertBkp= generateInsertSQLbkp(noOfDays);
+	            
+	            System.out.println(insertQuery);
+				System.out.println(insertBkp);
+	            PreparedStatement pstmt= conn.prepareStatement(insertQuery);
+	            PreparedStatement pstmtBkp= conn.prepareStatement(insertBkp);
+				
+				// ---------- ADDED: List to collect all invalid 'L' errors ----------
+                List<String> errorMessages = new ArrayList<>();
+				
+	            for (int i = 1; i <= ((org.apache.poi.ss.usermodel.Sheet) sheet).getLastRowNum(); i++) {
+                    Row row = ((org.apache.poi.ss.usermodel.Sheet) sheet).getRow(i);
+                    if (row == null) continue;
+
+                    for (Map.Entry<String, Integer> entry : columnMap.entrySet()) {
+                        @SuppressWarnings("unused")
+						String columnName = entry.getKey();
+                        int columnIndex = entry.getValue();
+                        String cellValue = row.getCell(columnIndex) != null ? row.getCell(columnIndex).getStringCellValue() : "";
+                        
+                        // ---------- ADID: Remove special characters ----------
+                        if ("ADID".equalsIgnoreCase(columnName) && cellValue != null && !cellValue.trim().isEmpty()) {
+                            // Option 1: Remove ALL special characters (keep only letters and numbers)
+                            cellValue = cellValue.replaceAll("[^a-zA-Z0-9]", "");
+                            // Option 2: OR remove only _, -, space
+                            // cellValue = cellValue.replaceAll("[_\\-\\s]", "");
+                            
+                            // Convert to uppercase for consistency
+                            cellValue = cellValue.toUpperCase();
+                        }
+                        
+                        // ---------- VALIDATION: invalid leave code 'L' ----------
+                        // Only check day columns (skip fixed columns)
+                        boolean isFixedColumn = false;
+                        for (String fixedCol : requiredFixedColumns) {
+                            if (fixedCol.equalsIgnoreCase(columnName)) {
+                                isFixedColumn = true;
+                                break;
+                            }
+                        }
+                        if (!isFixedColumn && cellValue != null && cellValue.trim().equalsIgnoreCase("L")) {
+                            errorMessages.add("Row " + (i + 1) + ", column '" + columnName + "' contains invalid 'L'. " +
+                                              "Use SL, CL, EL, FL, or HL.");
+                        }
+                        // Normalize the cell value
+
+                        String normalizedCellValue = cellValue.replaceAll("\\s+", "").toLowerCase();
+                        
+                     // Compare after normalization
+                        if ("m(0)".equalsIgnoreCase(normalizedCellValue) || "m(o)".equalsIgnoreCase(normalizedCellValue)) {
+                            cellValue = "Morning";
+                        } else if ("d(0)".equalsIgnoreCase(normalizedCellValue) || "d(o)".equalsIgnoreCase(normalizedCellValue)) {
+                            cellValue = "General";
+                        } else if ("a(0)".equalsIgnoreCase(normalizedCellValue) || "a(o)".equalsIgnoreCase(normalizedCellValue)) {
+                            cellValue = "Afternoon";
+                        } else if ("n(0)".equalsIgnoreCase(normalizedCellValue) || "n(o)".equalsIgnoreCase(normalizedCellValue)) {
+                            cellValue = "Night";
+                        }
+                       
+                     // Replace "WFH-M(o)" with "WFH-Morning"
+                        if ("WFH-M(0)".equalsIgnoreCase(normalizedCellValue) || "WFH-M(o)".equalsIgnoreCase(normalizedCellValue) || "M(wfh)".equalsIgnoreCase(normalizedCellValue) || "M(w)".equalsIgnoreCase(normalizedCellValue)) {
+                            cellValue = "WFH-Morning";
+                        }
+                        
+                     // Replace "WFH-D(o)" with "WFH-General"
+                        if ("WFH-D(0)".equalsIgnoreCase(normalizedCellValue) || "WFH-D(o)".equalsIgnoreCase(normalizedCellValue) || "D(wfh)".equalsIgnoreCase(normalizedCellValue) || "D(w)".equalsIgnoreCase(normalizedCellValue)) {
+                            cellValue = "WFH-General";
+                        }
+                        
+                        // Replace "WFH-A(o)" with "WFH-Afternoon"
+                        if ("WFH-A(0)".equalsIgnoreCase(normalizedCellValue) || "WFH-A(o)".equalsIgnoreCase(normalizedCellValue) ||  "A(wfh)".equalsIgnoreCase(normalizedCellValue) || "A(w)".equalsIgnoreCase(normalizedCellValue)) {
+                            cellValue = "WFH-Afternoon";
+                        }
+                        
+                     // Replace "WFH-N(o)" with "WFH-Night"
+                        if ("WFH-N(0)".equalsIgnoreCase(normalizedCellValue) || "WFH-N(o)".equalsIgnoreCase(normalizedCellValue) || "N(wfh)".equalsIgnoreCase(normalizedCellValue) || "N(w)".equalsIgnoreCase(normalizedCellValue)) {
+                            cellValue = "WFH-Night";
+                        }
+                        
+                     // Replace "CC-M(o)" with "CC-Morning"
+                        if ("CC-M(0)".equalsIgnoreCase(normalizedCellValue) || "CC-M(o)".equalsIgnoreCase(normalizedCellValue) || "M(CC)".equalsIgnoreCase(normalizedCellValue) || "M(C)".equalsIgnoreCase(normalizedCellValue)) {
+                            cellValue = "CC-Morning";
+                        }
+                        
+                     // Replace "CC-D(o)" with "CC-General"
+                        if ("CC-D(0)".equalsIgnoreCase(normalizedCellValue) || "CC-D(o)".equalsIgnoreCase(normalizedCellValue) || "D(CC)".equalsIgnoreCase(normalizedCellValue) || "D(C)".equalsIgnoreCase(normalizedCellValue)) {
+                            cellValue = "CC-General";
+                        }
+                        
+                        // Replace "CC-A(o)" with "CC-Afternoon"
+                        if ("CC-A(0)".equalsIgnoreCase(normalizedCellValue) || "CC-A(o)".equalsIgnoreCase(normalizedCellValue) ||  "A(CC)".equalsIgnoreCase(normalizedCellValue) || "A(C)".equalsIgnoreCase(normalizedCellValue)) {
+                            cellValue = "CC-Afternoon";
+                        }
+                        
+                     // Replace "CC-N(o)" with "CC-Night"
+                        if ("CC-N(0)".equalsIgnoreCase(normalizedCellValue) || "CC-N(o)".equalsIgnoreCase(normalizedCellValue) || "N(CC)".equalsIgnoreCase(normalizedCellValue) || "N(C)".equalsIgnoreCase(normalizedCellValue)) {
+                            cellValue = "CC-Night";
+                        }
+                        
+                        // Replace "W" with "Weekoff"
+                        if ("W".equalsIgnoreCase(normalizedCellValue)) {
+                            cellValue = "Weekoff";
+                        }
+                        
+                     // Replace "L" with "Leave"
+                   /*     if ("L".equalsIgnoreCase(normalizedCellValue)) {
+                            cellValue = "Leave";
+                        } */
+                        
+                        // Replace "SL" with "SickLeave"
+                        if ("SL".equalsIgnoreCase(normalizedCellValue)) {
+                            cellValue = "SickLeave";
+                        }
+                        
+                        // Replace "CL" with "CasualLeave"
+                        if ("CL".equalsIgnoreCase(normalizedCellValue)) {
+                            cellValue = "CasualLeave";
+                        }
+                        
+                        // Replace "EL" with "EarnedLeave"
+                        if ("EL".equalsIgnoreCase(normalizedCellValue)) {
+                            cellValue = "EarnedLeave";
+                        }
+                        
+                        // Replace "FL" with "FlexiLeave"
+                        if ("FL".equalsIgnoreCase(normalizedCellValue)) {
+                            cellValue = "FlexiLeave";
+                        }
+                        
+                     // Replace "HL" with "HolidayLeave"
+                        if ("HL".equalsIgnoreCase(normalizedCellValue)) {
+                            cellValue = "HolidayLeave";
+                        }
+                        
+                     // Replace "issue management" and "mails" with "Incident Management"
+                        if ("IssueManagement".equalsIgnoreCase(normalizedCellValue) || "mails".equalsIgnoreCase(normalizedCellValue) ) {
+                            cellValue = "Incident Management";
+                        }  
+                        
+                     // Replace "monitoring"  with "Event Management"
+                        if ("monitoring".equalsIgnoreCase(normalizedCellValue) ) {
+                            cellValue = "Event Management";
+                        }
+                        
+                     // Replace "Score"  with "Service Desk"
+                        if ("Score".equalsIgnoreCase(normalizedCellValue) ) {
+                            cellValue = "Service Desk";
+                        }
+                        
+                     // Replace "adhoc"  with "Service Reporting Management"
+                        if ("adhoc".equalsIgnoreCase(normalizedCellValue) ) {
+                            cellValue = "Service Reporting Management";
+                        }
+                        
+                     // Replace "Automation"  with "Process Improvement"
+                        if ("Automation".equalsIgnoreCase(normalizedCellValue) ) {
+                            cellValue = "Process Improvement";
+                        }
+                        
+                     // Replace " " with "NA"
+                        if (cellValue.trim().isEmpty()) {
+                            cellValue = "NA";
+                        }
+                        System.out.println("Cell Value :- "+ cellValue);
+                        pstmt.setString(entry.getValue() + 1, cellValue); // Set value in prepared statement
+                        pstmtBkp.setString(entry.getValue() + 1, cellValue);
+                    }
+                    pstmt.addBatch();
+                    pstmtBkp.addBatch();
+                }
+	            
+	         // ---------- After processing all rows, check for collected errors ----------
+                if (!errorMessages.isEmpty()) {
+                    StringBuilder fullError = new StringBuilder("Invalid leave codes found:<br>");
+                    for (String msg : errorMessages) {
+                        fullError.append(" ").append(msg).append("<br>");
+                    }
+                    fullError.append("Please correct these entries and re-upload.");
+                    request.setAttribute("errorMessage", fullError.toString());
+                    request.getRequestDispatcher("/jsp/ExcelRoster.jsp").forward(request, response);
+                    return;   // abort insertion
+                }
+                
+                pstmt.executeBatch();
+                pstmtBkp.executeBatch();
+			   
+                String action="insert";
+                String historyQuery="insert into a_roster_history(MONTH_YEAR,team,action,performed_by) values(?,?,?,?)";
+                PreparedStatement ps=conn.prepareStatement(historyQuery);
+                ps.setObject(1, monthYear);
+                ps.setObject(2, team);
+                ps.setObject(3, action);
+                ps.setObject(4, performby);
+                ps.executeUpdate();
+                ps.close();
+                request.setAttribute("successMessage", "Roster for " + month + " " + year + " uploaded successfully!");
+                request.getRequestDispatcher("/jsp/ExcelRoster.jsp").forward(request, response);
+	            return;
+		}catch(Exception e) {
+			e.printStackTrace();
+			request.setAttribute("errorMessage", e.getMessage());
+	        request.getRequestDispatcher("/jsp/ExcelRoster.jsp").forward(request, response);
+	        return;
+		}finally {
+			if (conn != null) {
+	            try { conn.close(); } catch (SQLException e) { e.printStackTrace(); }
+	        }
+		}
+		}
+		request.setAttribute("errorMessage", "Role is null, Login Again ");
+		request.getRequestDispatcher("/jsp/ExcelRoster.jsp").forward(request, response);
+	}
+	
+	private String getCellValue(Cell cell) {
+  if (cell == null) {
+    return null;
+  }
+ 
+  try {
+    switch (cell.getCellType()) {
+      case Cell.CELL_TYPE_STRING:
+        return cell.getStringCellValue().trim();
+       
+      case Cell.CELL_TYPE_NUMERIC:
+        // Check if it's a date
+        if (org.apache.poi.ss.usermodel.DateUtil.isCellDateFormatted(cell)) {
+          // For dates, format as string
+          Date date = cell.getDateCellValue();
+          SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd");
+          return sdf.format(date);
+        } else {
+          // For numbers, check if it's integer or decimal
+          double num = cell.getNumericCellValue();
+          // Check if it's an integer value
+          if (num == Math.floor(num)) {
+            return String.valueOf((int) num);
+          } else {
+            return String.valueOf(num);
+          }
+        }
+       
+      case Cell.CELL_TYPE_BOOLEAN:
+        return String.valueOf(cell.getBooleanCellValue());
+       
+      case Cell.CELL_TYPE_FORMULA:
+        // Try to evaluate formula result
+        try {
+          switch (cell.getCachedFormulaResultType()) {
+            case Cell.CELL_TYPE_STRING:
+              return cell.getStringCellValue().trim();
+            case Cell.CELL_TYPE_NUMERIC:
+              double num = cell.getNumericCellValue();
+              if (num == Math.floor(num)) {
+                return String.valueOf((int) num);
+              } else {
+                return String.valueOf(num);
+              }
+            case Cell.CELL_TYPE_BOOLEAN:
+              return String.valueOf(cell.getBooleanCellValue());
+            default:
+              return cell.getCellFormula();
+          }
+        } catch (Exception e) {
+          return cell.getCellFormula();
+        }
+       
+      case Cell.CELL_TYPE_BLANK:
+        return null;
+       
+      case Cell.CELL_TYPE_ERROR:
+        return "#ERROR";
+       
+      default:
+        return null;
+    }
+  } catch (Exception e) {
+    e.printStackTrace();
+    return null;
+  }
+}
+
+	
+	
+	private String generateInsertSQL(int noOfDays) {
+		StringBuilder columnNames = new StringBuilder("ad_id, name,team,position, monthyear");
+        System.out.println("columnNames : "+columnNames);
+        StringBuilder  placeholders = new StringBuilder("?,?,?,?,?");
+        for (int i = 1; i <= noOfDays; i++) {
+            columnNames.append(", day_").append(i);
+            placeholders.append(", ?");
+        }
+        return String.format("INSERT INTO rostertable (%s) VALUES (%s)", columnNames.toString(), placeholders.toString());
+		
+    }
+	
+	private String generateInsertSQLbkp(int noOfDays) {
+		StringBuilder columnNames = new StringBuilder("ad_id,name,team,position, monthyear");
+        System.out.println("columnNames : "+columnNames);
+        StringBuilder  placeholders = new StringBuilder("?,?,?,?,?");
+        for (int i = 1; i <= noOfDays; i++) {
+            columnNames.append(", day_").append(i);
+            placeholders.append(", ?");
+        }
+        return String.format("INSERT INTO rostertable_bkp (%s) VALUES (%s)", columnNames.toString(), placeholders.toString());
+		
+    }
+	
+	private boolean checkDataExists(String monthyr, String team) {
+		boolean exists=false;
+		Connection conn=null;
+		PreparedStatement pstmt=null;
+		ResultSet rs=null;
+		
+		try {
+			conn= DBUtilityAuto.getReportDBConnection();
+			String query=" select * from rostertable where UPPER(MONTHYEAR)=? and team=?";
+			pstmt=conn.prepareStatement(query);
+			pstmt.setString(1,monthyr.toUpperCase());
+			pstmt.setString(2, team );
+			rs=pstmt.executeQuery();
+			exists=rs.next();
+		}catch(Exception e) {
+			e.printStackTrace();
+		}finally {
+			try {
+			if(rs!= null) rs.close();
+			if(pstmt != null) pstmt.close();
+			if(conn != null) conn.close();
+			} catch(SQLException e) {
+				e.printStackTrace();
+			}
+		}
+		return exists;
+		
+	}
+	
+	private String getMonthName(String monthId) {
+		String sortMonth =null;
+		if(monthId.equalsIgnoreCase("01")) {
+			sortMonth= "Jan";
+		} else if(monthId.equalsIgnoreCase("02")){
+			sortMonth= "Feb";
+		} else if(monthId.equalsIgnoreCase("03")){
+			sortMonth= "Mar";
+		} else if(monthId.equalsIgnoreCase("04")){
+			sortMonth= "Apr";
+		} else if(monthId.equalsIgnoreCase("05")){
+			sortMonth= "May";
+		} else if(monthId.equalsIgnoreCase("06")){
+			sortMonth= "Jun";
+		} else if(monthId.equalsIgnoreCase("07")){
+			sortMonth= "Jul";
+		} else if(monthId.equalsIgnoreCase("08")){
+			sortMonth= "Aug";
+		} else if(monthId.equalsIgnoreCase("09")){
+			sortMonth= "Sep";
+		} else if(monthId.equalsIgnoreCase("10")){
+			sortMonth= "Oct";
+		} else if(monthId.equalsIgnoreCase("11")){
+			sortMonth= "Nov";
+		} else if(monthId.equalsIgnoreCase("12")){
+			sortMonth= "Dec";
+		}
+		return sortMonth;
+	}
+}
+
+
+
+
