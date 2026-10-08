@@ -1,82 +1,132 @@
-# EIS Portal vs Dynatrace: Technical Comparison
+<%@ page language="java" contentType="text/html; charset=ISO-8859-1" pageEncoding="ISO-8859-1"%>
+<%@ taglib prefix="s" uri="/struts-tags" %>
+<%@ taglib prefix="c" uri="jakarta.tags.core" %>
+<%@ taglib prefix="fn" uri="jakarta.tags.functions" %>
 
----
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="ISO-8859-1">
+<title>Failure Services</title>
+<script src="${pageContext.request.contextPath}/js/jquery-3.3.1.min.js"></script>
+<link rel="stylesheet" href="${pageContext.request.contextPath}/css/bootstrap.min.css">
+</head>
 
-## The Core Truth
+<body>
+<s:form action="showFailureServicesWise" method="post">
+    <s:hidden name="ServiceCategory" id="ServiceCategory" value="%{ServiceCategory}" />
 
-> **"Dynatrace team is 100% dependent on us for data, queries, business logic, and fixes. If we do all the work, why add a middleman?"**
+    <div class="card my-3">
+        <h5 class="card-header text-center">Failure Services</h5>
+        <div class="card-body">
 
----
+            <!-- Debug Output -->
+            <div class="alert alert-info">
+                <b>Debug Info:</b><br/>
+                Server = <strong><s:property value="m_strServer" /></strong><br/>
+                Broker Name = <strong><s:property value="m_strbroker_name" /></strong><br/>
+                ServiceCategory = <strong><s:property value="ServiceCategory" /></strong><br/>
+                API Name = <strong><s:property value="parameters.url" /></strong><br/>
+                DB_ENVLOCATION = <strong><s:property value="m_strENVLOCATION" /></strong><br/>
+            </div>
 
-## 10 Key Differences
+            <!-- Show total records -->
+            <p>
+                Total records loaded:
+                <strong><s:property value="m_lstFailureServicedetail.size()" /></strong>
+            </p>
 
-| # | Aspect | EIS Portal ✅ | Dynatrace ❌ |
-|---|--------|---------------|--------------|
-| 1 | **Query Changes** | We execute directly (minutes) | They ask us → We do (days) |
-| 2 | **Business Logic** | Built-in (TD/BD/Mixed) | They don't know → Ask us every time |
-| 3 | **Error Mapping** | We know SI002, CK002, etc. | They ask us for every error |
-| 4 | **Change Management** | We control everything (hours) | They request → We implement (days) |
-| 5 | **Debugging** | Direct DB access (instant) | They report → We investigate (hours) |
-| 6 | **New Features** | We build (hours) | They ask → We build → They consume |
-| 7 | **Data Freshness** | Real-time (<100ms) | API delay (2-8 seconds) |
-| 8 | **Architecture** | Single server (direct) | Multi-hop (DB→API→Dynatrace) |
-| 9 | **Drill-down** | Deep (1-2 clicks) | Limited (5-6 clicks) |
-| 10 | **Vendor Dependency** | Zero (we own everything) | Complete (they need us) |
+            <s:if test="m_lstFailureServicedetail.isEmpty()">
+                <div class="alert alert-warning">No failure service data available!</div>
+            </s:if>
 
----
+            <s:else>
+            <table class="table table-bordered table-sm table-hover">
+                <thead class="thead-light">
+                    <tr>
+                        <th>API NAME</th>
+                        <th>Broker Name</th>
+                        <th>BrokerEG</th>
+                        <th>Total Hits</th>
+                        <th>Success</th>
+                        <th>SI001</th>
+                        <th>002</th>
+                        <th>SI002</th>
+                        <th>SI007</th>
+                        <th>SI051</th>
+                        <th>014</th>
+                        <th>SI014</th>
+                        <th>PARSING EXCEPTION</th>
+                        <th>SI569</th>
+                        <th>SI570</th>
+                        <th>TD</th>
+                        <th>TD Percent</th>
+                        <th>BD</th>
+                        <th>BD Percent</th>
+                    </tr>
+                </thead>
+                <tbody>
+                <s:iterator value="m_lstFailureServicedetail" var="list">
+                    <tr>
+                        <td><s:property value="#list.m_strAPIName" /></td>
+                        <td><s:property value="#list.m_strbroker_name" /></td>
+                        <td><s:property value="#list.m_strbroker_eg" /></td>
+                        <td><s:property value="#list.m_strTOTAL_HITS" /></td>
+                        <td><s:property value="#list.m_strSUCCESS" /></td>
+                        <td onclick="showreferenceno('SI001','<s:property value="#list.m_strAPIName" />','<s:property value="#list.m_strexp_ip" />')">
+                            <s:property value="#list.m_str001" />
+                        </td>
+                        <td onclick="showreferenceno('002','<s:property value="#list.m_strAPIName" />','<s:property value="#list.m_strexp_ip" />')">
+                            <s:property value="#list.m_str002" />
+                        </td>
+                        <td onclick="showreferenceno('SI002','<s:property value="#list.m_strAPIName" />','<s:property value="#list.m_strexp_ip" />')">
+                            <s:property value="#list.m_strSI002" />
+                        </td>
+                        <td onclick="showreferenceno('SI007','<s:property value="#list.m_strAPIName" />','<s:property value="#list.m_strexp_ip" />')">
+                            <s:property value="#list.m_str007" />
+                        </td>
+                        <td onclick="showreferenceno('SI051','<s:property value="#list.m_strAPIName" />','<s:property value="#list.m_strexp_ip" />')">
+                            <s:property value="#list.m_str051" />
+                        </td>
+                        <td onclick="showreferenceno('014','<s:property value="#list.m_strAPIName" />','<s:property value="#list.m_strexp_ip" />')">
+                            <s:property value="#list.m_str014" />
+                        </td>
+                        <td onclick="showreferenceno('SI014','<s:property value="#list.m_strAPIName" />','<s:property value="#list.m_strexp_ip" />')">
+                            <s:property value="#list.m_strSI014" />
+                        </td>
+                        <td onclick="showreferenceno('PARSING_EXCEPTION','<s:property value="#list.m_strAPIName" />','<s:property value="#list.m_strexp_ip" />')">
+                            <s:property value="#list.m_strPARSINGEXCEPTION" />
+                        </td>
+                        <td onclick="showreferenceno('SI569','<s:property value="#list.m_strAPIName" />','<s:property value="#list.m_strexp_ip" />')">
+                            <s:property value="#list.m_str569" />
+                        </td>
+                        <td onclick="showreferenceno('SI570','<s:property value="#list.m_strAPIName" />','<s:property value="#list.m_strexp_ip" />')">
+                            <s:property value="#list.m_str570" />
+                        </td>
+                        <td><s:property value="#list.m_strTD" /></td>
+                        <td><s:property value="#list.m_strTD_PERCENT" /></td>
+                        <td><s:property value="#list.m_strBD" /></td>
+                        <td><s:property value="#list.m_strBD_PERCENT" /></td>
+                    </tr>
+                </s:iterator>
+                </tbody>
+            </table>
+            </s:else>
+        </div>
+    </div>
+</s:form>
 
-## The Problem: We Are the Backend
+<script>
+function showreferenceno(errorcode, apiname, expip) {
+    var serviceCategory = document.getElementById("ServiceCategory").value;
+    var url = '${pageContext.request.contextPath}/Multiple?action=showfailurerefernceno'
+        + '&errorcode=' + encodeURIComponent(errorcode)
+        + '&apiname=' + encodeURIComponent(apiname)
+        + '&expip=' + encodeURIComponent(expip)
+        + '&ServiceCategory=' + encodeURIComponent(serviceCategory);
+    window.open(url, '_blank');
+}
+</script>
 
-```
-Dynatrace Team → Comes to us for EVERYTHING:
-├── Query writing → Us
-├── Error understanding → Us  
-├── Data explanation → Us
-├── Bug fixing → Us
-├── Feature development → Us
-└── Change implementation → Us
-
-If we're doing ALL the work, why add a middleman?
-```
-
----
-
-## Time Comparison
-
-| Scenario | EIS Portal | Dynatrace |
-|----------|------------|-----------|
-| New Metric | 1-2 hours | 3-4 days |
-| Bug Fix | 1 hour | 4-5 hours |
-| Error Mapping | 5 minutes | 4 hours |
-| New Feature | 2 hours | 2-3 days |
-
----
-
-## Quick Decision Matrix
-
-| Parameter | EIS Portal | Dynatrace |
-|-----------|------------|-----------|
-| Who writes queries? | ✅ We do | ❌ We do (they ask) |
-| Who understands data? | ✅ We do | ❌ We do (they ask) |
-| Who fixes bugs? | ✅ We do | ❌ We do (they ask) |
-| Who owns business logic? | ✅ We do | ❌ They need us |
-| Change time | ✅ Hours | ❌ Days |
-| Control | ✅ Complete | ❌ None |
-
----
-
-## Bottom Line
-
-> *"Dynatrace team comes to us for everything - queries, errors, fixes, features. If we're doing all the work anyway, why use a middleman?"*
-
----
-
-## Verdict
-
-✅ **EIS Portal** - Faster, Smarter, Independent, Ours  
-❌ **Dynatrace** - Slower, Dependent, Extra Layer, Vendor Lock-in
-
----
-
-*Prepared by: EIS Development Team*
-*Status: Ready for Approval* 🚀
+</body>
+</html>
