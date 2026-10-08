@@ -1,25 +1,329 @@
-Yeh lo bhai — **separate user for database** mention karte hue:
+package com.action;
 
----
+import java.sql.Connection;
+import java.sql.ResultSet;
+import java.sql.Statement;
+import java.util.ArrayList;
+import java.util.List;
 
-**Subject:** Request for Approval – Separate DB User for EISPortal & Crons (Without PIMS)
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpSession;
 
-Dear [Banker's Name],
+import com.opensymphony.xwork2.ActionSupport;
+import com.opensymphony.xwork2.ModelDriven;
+import com.actionform.LoginForm;
+import com.beans.FailureServicesBean;
+import com.jdbc.DBUtilityAuto;
+import org.apache.struts2.ServletActionContext;
 
-I hope you are doing well.
+@SuppressWarnings("serial")
+public class ShowfailureServicesWiseAction extends ActionSupport implements ModelDriven<LoginForm> {
 
-I would like to request your **approval for creating a separate database user for EISPortal & Crons**, **without PIMS access**.
+    private LoginForm loginForm = new LoginForm();
 
-My current ID is linked with PIMS, due to which I am unable to access **EISPortal & Crons**. PIMS access has also not been provided yet.
+    @Override
+    public LoginForm getModel() {
+        return loginForm;
+    }
 
-Once your approval is received, the **DB team** can proceed with creating the separate DB user.
+    @Override
+    public String execute() throws Exception {
+        System.out.println("==> [DEBUG] Entering ShowfailureServicesWiseAction.execute()");
+        HttpServletRequest request = ServletActionContext.getRequest();
+        displayServices(request);
+        System.out.println("==> [DEBUG] Leaving ShowfailureServicesWiseAction.execute()");
+        return SUCCESS;
+    }
 
-Kindly approve the same.
+    private void displayServices(HttpServletRequest request) throws Exception {
+        System.out.println("==> [DEBUG] Entering displayServices()");
+        Connection con = null;
+        Statement stmt = null;
+        List<FailureServicesBean> serviceList = new ArrayList<>();
 
-Thanks and regards,
-[Your Name]
-[Your Employee ID]
+        String m_strURL = request.getParameter("url");
+        String server = request.getParameter("server");
+        String broker_Name = request.getParameter("broker_Name");
 
----
+        System.out.println("[DEBUG] Raw Input Parameters: url=" + m_strURL + ", server=" + server + ", broker_Name=" + broker_Name);
 
-Bas itna hi bhai. Simple aur clear.
+        // These fields for debug info
+        loginForm.setM_strServer(server);
+        loginForm.setM_strbroker_name(broker_Name);
+
+        HttpSession session = request.getSession(false);
+        String serviceCategory = null;
+        if (session != null) {
+            Object scObj = session.getAttribute("ServiceCategory");
+            if (scObj != null) {
+                serviceCategory = scObj.toString();
+                System.out.println("[DEBUG] ServiceCategory from session: " + serviceCategory);
+            }
+        }
+        if (request.getParameter("ServiceCategory") != null) {
+            serviceCategory = request.getParameter("ServiceCategory");
+            System.out.println("[DEBUG] ServiceCategory overridden from request: " + serviceCategory);
+        }
+        loginForm.setServiceCategory(serviceCategory);
+
+        // Optional, if you have environment location
+        String envLoc = System.getenv("DB_ENVLOCATION");
+        System.out.println("[DEBUG] ENVLOCATION: " + envLoc);
+        loginForm.setM_strENVLOCATION(envLoc);
+
+        try {
+            con = DBUtilityAuto.getIIBDBConnection();
+            String query = "";
+
+            if ("GEN-5".equals(serviceCategory) || "IVR-Service".equals(serviceCategory)
+                    || "SBICAPS-Service".equals(serviceCategory)) {
+                query = getQueryForGen5(m_strURL);
+            } else if ("ThirdParty-GEN-5".equals(serviceCategory)) {
+                query = getQueryForThirdParty(m_strURL);
+            }
+
+            System.out.println("[DEBUG] Final SQL Query: " + query);
+
+            if (!query.isEmpty()) {
+                stmt = con.createStatement();
+                ResultSet rs = stmt.executeQuery(query);
+
+                int rowCount = 0;
+                while (rs.next()) {
+                    FailureServicesBean bean = extractBeanFromResultSet(rs, true);
+                    serviceList.add(bean);
+                    rowCount++;
+                    System.out.println("[DEBUG] Row " + rowCount + ": " +
+                        bean.getM_strAPIName() + " | " +
+                        bean.getM_strbroker_name() + " | " +
+                        bean.getM_strbroker_eg());
+                }
+                rs.close();
+
+                if (rowCount == 0) {
+                    System.out.println("[DEBUG] No rows found in result set.");
+                } else {
+                    System.out.println("[DEBUG] Total records loaded from DB: " + rowCount);
+                }
+            } else {
+                System.out.println("[DEBUG] Query is empty. Skipping DB call.");
+            }
+
+            loginForm.setM_lstFailureServicedetail(serviceList);
+
+            System.out.println("[DEBUG] loginForm.m_lstFailureServicedetail size after DB load: " +
+                (loginForm.getM_lstFailureServicedetail() == null ? "null" :
+                loginForm.getM_lstFailureServicedetail().size()));
+
+        } catch (Exception e) {
+            System.err.println("[ERROR] Exception in displayServices():");
+            e.printStackTrace();
+        } finally {
+            if (stmt != null) try { stmt.close(); } catch (Exception ex) { /* ignore */ }
+            if (con != null) try { con.close(); } catch (Exception ex) { /* ignore */ }
+            System.out.println("==> [DEBUG] Exiting displayServices()");
+        }
+    }
+
+    private String getQueryForGen5(String m_strURL) {
+        return "SELECT trim(API_NAME), trim(broker_name), trim(broker_eg), " +
+                "COUNT(1) AS TOTAL_HITS, " +
+                "SUM(CASE WHEN RESPONSE_STATUS IN ('0','SUCCESS') THEN 1 ELSE 0 END) AS SUCCESS, " +
+                "SUM(CASE WHEN error_code ='SI001' THEN 1 ELSE 0 END) AS SI001, " +
+                "SUM(CASE WHEN substr(error_code,3,3) ='002' AND error_code <> 'SI002' THEN 1 ELSE 0 END) AS \"002\", " +
+                "SUM(CASE WHEN error_code = 'SI002' THEN 1 ELSE 0 END) AS SI002, " +
+                "SUM(CASE WHEN error_code = 'SI007' AND error_code <> '70007' THEN 1 ELSE 0 END) AS SI007, " +
+                "SUM(CASE WHEN error_code = 'SI051' THEN 1 ELSE 0 END) AS SI051, " +
+                "SUM(CASE WHEN substr(error_code,3,3) ='014' AND error_code NOT IN ('00014','SI014') THEN 1 ELSE 0 END) AS \"014\", " +
+                "SUM(CASE WHEN error_code = 'SI014' THEN 1 ELSE 0 END) AS SI014, " +
+                "SUM(CASE WHEN error_description = 'PARSING EXCEPTION' THEN 1 ELSE 0 END) AS PARSING_EXCEPTION, " +
+                "SUM(CASE WHEN error_code = 'SI569' THEN 1 ELSE 0 END) AS SI569, " +
+                "SUM(CASE WHEN error_code = 'SI570' THEN 1 ELSE 0 END) AS SI570, " +
+                "SUM(CASE WHEN (substr(error_code,3,3) IN ('002','014') OR error_code IN ('SI001','SI007','SI051','SI569','SI570')) AND error_code <> '00014' THEN 1 ELSE 0 END) AS TD, " +
+                "ROUND((SUM(CASE WHEN (substr(error_code,3,3) IN ('002','014') OR error_code IN ('SI001','SI007','SI051','SI569','SI570')) AND error_code <> '00014' THEN 1 ELSE 0 END) * 100) / COUNT(1), 2) AS TD_PERCENT, " +
+                "SUM(CASE WHEN (NVL(substr(error_code,3,3),'A') NOT IN ('001','002','007','051','014') OR error_code IN ('00014','70007')) AND RESPONSE_STATUS NOT IN ('0','SUCCESS') THEN 1 ELSE 0 END) AS BD, " +
+                "ROUND((SUM(CASE WHEN (NVL(substr(error_code,3,3),'A') NOT IN ('001','002','007','051','014') OR error_code IN ('00014','70007')) AND RESPONSE_STATUS NOT IN ('0','SUCCESS') THEN 1 ELSE 0 END) * 100) / COUNT(1), 2) AS BD_PERCENT " +
+                "FROM eisapp.api_log WHERE API_NAME = '" + m_strURL + "' AND REQUEST_DATE_TIME >= SYSDATE - INTERVAL '20' MINUTE " +
+                "GROUP BY trim(API_NAME), trim(broker_name), trim(broker_eg) ORDER BY TD DESC";
+    }
+
+    private String getQueryForThirdParty(String m_strURL) {
+        return "SELECT trim(original_urn), trim(broker_name), trim(broker_eg), " +
+                "COUNT(1) AS TOTAL_HITS, " +
+                "SUM(CASE WHEN RESPONSE_STATUS IN ('0','SUCCESS') THEN 1 ELSE 0 END) AS SUCCESS, " +
+                "SUM(CASE WHEN error_code ='SI001' THEN 1 ELSE 0 END) AS SI001, " +
+                "SUM(CASE WHEN substr(error_code,3,3) ='002' AND error_code <> 'SI002' THEN 1 ELSE 0 END) AS \"002\", " +
+                "SUM(CASE WHEN error_code = 'SI002' THEN 1 ELSE 0 END) AS SI002, " +
+                "SUM(CASE WHEN error_code = 'SI007' AND error_code <> '70007' THEN 1 ELSE 0 END) AS SI007, " +
+                "SUM(CASE WHEN error_code = 'SI051' THEN 1 ELSE 0 END) AS SI051, " +
+                "SUM(CASE WHEN substr(error_code,3,3) ='014' AND error_code NOT IN ('00014','SI014') THEN 1 ELSE 0 END) AS \"014\", " +
+                "SUM(CASE WHEN error_code = 'SI014' THEN 1 ELSE 0 END) AS SI014, " +
+                "SUM(CASE WHEN error_description = 'PARSING EXCEPTION' THEN 1 ELSE 0 END) AS PARSING_EXCEPTION, " +
+                "SUM(CASE WHEN error_code = 'SI569' THEN 1 ELSE 0 END) AS SI569, " +
+                "SUM(CASE WHEN error_code = 'SI570' THEN 1 ELSE 0 END) AS SI570, " +
+                "SUM(CASE WHEN (substr(error_code,3,3) IN ('002','014') OR error_code IN ('SI001','SI007','SI051','SI569','SI570')) AND error_code <> '00014' THEN 1 ELSE 0 END) AS TD, " +
+                "ROUND((SUM(CASE WHEN (substr(error_code,3,3) IN ('002','014') OR error_code IN ('SI001','SI007','SI051','SI569','SI570')) AND error_code <> '00014' THEN 1 ELSE 0 END) * 100) / COUNT(1), 2) AS TD_PERCENT, " +
+                "SUM(CASE WHEN (NVL(substr(error_code,3,3),'A') NOT IN ('001','002','007','051','014') OR error_code IN ('00014','70007')) AND RESPONSE_STATUS NOT IN ('0','SUCCESS') THEN 1 ELSE 0 END) AS BD, " +
+                "ROUND((SUM(CASE WHEN (NVL(substr(error_code,3,3),'A') NOT IN ('001','002','007','051','014') OR error_code IN ('00014','70007')) AND RESPONSE_STATUS NOT IN ('0','SUCCESS') THEN 1 ELSE 0 END) * 100) / COUNT(1), 2) AS BD_PERCENT " +
+                "FROM eisapp.thirdparty_api_log WHERE original_urn = '" + m_strURL + "' AND REQUEST_DATE_TIME >= SYSDATE - INTERVAL '20' MINUTE " +
+                "GROUP BY trim(original_urn), trim(broker_name), trim(broker_eg) ORDER BY TD DESC";
+    }
+
+    private FailureServicesBean extractBeanFromResultSet(ResultSet rs, boolean isGen5) throws Exception {
+        FailureServicesBean bean = new FailureServicesBean();
+        bean.setM_strAPIName(rs.getString(1));
+        bean.setM_strbroker_name(rs.getString(2));
+        bean.setM_strbroker_eg(rs.getString(3));
+        bean.setM_strTOTAL_HITS(rs.getString(4));
+        bean.setM_strSUCCESS(rs.getString(5));
+        bean.setM_str001(rs.getString(6));
+        bean.setM_str002(rs.getString(7));
+        bean.setM_strSI002(rs.getString(8));
+        bean.setM_str007(rs.getString(9));
+        bean.setM_str051(rs.getString(10));
+        bean.setM_str014(rs.getString(11));
+        bean.setM_strSI014(rs.getString(12));
+        bean.setM_strPARSINGEXCEPTION(rs.getString(13));
+        bean.setM_str569(rs.getString(14));
+        bean.setM_str570(rs.getString(15));
+        bean.setM_strTD(rs.getString(16));
+        bean.setM_strTD_PERCENT(rs.getString(17));
+        bean.setM_strBD(rs.getString(18));
+        bean.setM_strBD_PERCENT(rs.getString(19));
+        return bean;
+    }
+}
+----------------------------------------------------------------------------------
+
+<%@ page language="java" contentType="text/html; charset=ISO-8859-1" pageEncoding="ISO-8859-1"%>
+<%@ taglib prefix="s" uri="/struts-tags" %>
+<%@ taglib prefix="c" uri="jakarta.tags.core" %>
+<%@ taglib prefix="fn" uri="jakarta.tags.functions" %>
+
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="ISO-8859-1">
+<title>Failure Services</title>
+<script src="${pageContext.request.contextPath}/js/jquery-3.3.1.min.js"></script>
+<link rel="stylesheet" href="${pageContext.request.contextPath}/css/bootstrap.min.css">
+</head>
+
+<body>
+<s:form action="showFailureServicesWise" method="post">
+    <s:hidden name="ServiceCategory" id="ServiceCategory" value="%{ServiceCategory}" />
+
+    <div class="card my-3">
+        <h5 class="card-header text-center">Failure Services</h5>
+        <div class="card-body">
+
+            <!-- Debug Output -->
+            <div class="alert alert-info">
+                <b>Debug Info:</b><br/>
+                Server = <strong><s:property value="m_strServer" /></strong><br/>
+                Broker Name = <strong><s:property value="m_strbroker_name" /></strong><br/>
+                ServiceCategory = <strong><s:property value="ServiceCategory" /></strong><br/>
+                API Name = <strong><s:property value="parameters.url" /></strong><br/>
+                DB_ENVLOCATION = <strong><s:property value="m_strENVLOCATION" /></strong><br/>
+            </div>
+
+            <!-- Show total records -->
+            <p>
+                Total records loaded:
+                <strong><s:property value="m_lstFailureServicedetail.size()" /></strong>
+            </p>
+
+            <s:if test="m_lstFailureServicedetail.isEmpty()">
+                <div class="alert alert-warning">No failure service data available!</div>
+            </s:if>
+
+            <s:else>
+            <table class="table table-bordered table-sm table-hover">
+                <thead class="thead-light">
+                    <tr>
+                        <th>API NAME</th>
+                        <th>Broker Name</th>
+                        <th>BrokerEG</th>
+                        <th>Total Hits</th>
+                        <th>Success</th>
+                        <th>SI001</th>
+                        <th>002</th>
+                        <th>SI002</th>
+                        <th>SI007</th>
+                        <th>SI051</th>
+                        <th>014</th>
+                        <th>SI014</th>
+                        <th>PARSING EXCEPTION</th>
+                        <th>SI569</th>
+                        <th>SI570</th>
+                        <th>TD</th>
+                        <th>TD Percent</th>
+                        <th>BD</th>
+                        <th>BD Percent</th>
+                    </tr>
+                </thead>
+                <tbody>
+                <s:iterator value="m_lstFailureServicedetail" var="list">
+                    <tr>
+                        <td><s:property value="#list.m_strAPIName" /></td>
+                        <td><s:property value="#list.m_strbroker_name" /></td>
+                        <td><s:property value="#list.m_strbroker_eg" /></td>
+                        <td><s:property value="#list.m_strTOTAL_HITS" /></td>
+                        <td><s:property value="#list.m_strSUCCESS" /></td>
+                        <td onclick="showreferenceno('SI001','<s:property value="#list.m_strAPIName" />','<s:property value="#list.m_strexp_ip" />')">
+                            <s:property value="#list.m_str001" />
+                        </td>
+                        <td onclick="showreferenceno('002','<s:property value="#list.m_strAPIName" />','<s:property value="#list.m_strexp_ip" />')">
+                            <s:property value="#list.m_str002" />
+                        </td>
+                        <td onclick="showreferenceno('SI002','<s:property value="#list.m_strAPIName" />','<s:property value="#list.m_strexp_ip" />')">
+                            <s:property value="#list.m_strSI002" />
+                        </td>
+                        <td onclick="showreferenceno('SI007','<s:property value="#list.m_strAPIName" />','<s:property value="#list.m_strexp_ip" />')">
+                            <s:property value="#list.m_str007" />
+                        </td>
+                        <td onclick="showreferenceno('SI051','<s:property value="#list.m_strAPIName" />','<s:property value="#list.m_strexp_ip" />')">
+                            <s:property value="#list.m_str051" />
+                        </td>
+                        <td onclick="showreferenceno('014','<s:property value="#list.m_strAPIName" />','<s:property value="#list.m_strexp_ip" />')">
+                            <s:property value="#list.m_str014" />
+                        </td>
+                        <td onclick="showreferenceno('SI014','<s:property value="#list.m_strAPIName" />','<s:property value="#list.m_strexp_ip" />')">
+                            <s:property value="#list.m_strSI014" />
+                        </td>
+                        <td onclick="showreferenceno('PARSING_EXCEPTION','<s:property value="#list.m_strAPIName" />','<s:property value="#list.m_strexp_ip" />')">
+                            <s:property value="#list.m_strPARSINGEXCEPTION" />
+                        </td>
+                        <td onclick="showreferenceno('SI569','<s:property value="#list.m_strAPIName" />','<s:property value="#list.m_strexp_ip" />')">
+                            <s:property value="#list.m_str569" />
+                        </td>
+                        <td onclick="showreferenceno('SI570','<s:property value="#list.m_strAPIName" />','<s:property value="#list.m_strexp_ip" />')">
+                            <s:property value="#list.m_str570" />
+                        </td>
+                        <td><s:property value="#list.m_strTD" /></td>
+                        <td><s:property value="#list.m_strTD_PERCENT" /></td>
+                        <td><s:property value="#list.m_strBD" /></td>
+                        <td><s:property value="#list.m_strBD_PERCENT" /></td>
+                    </tr>
+                </s:iterator>
+                </tbody>
+            </table>
+            </s:else>
+        </div>
+    </div>
+</s:form>
+
+<script>
+function showreferenceno(errorcode, apiname, expip) {
+    var serviceCategory = document.getElementById("ServiceCategory").value;
+    var url = '${pageContext.request.contextPath}/Multiple?action=showfailurerefernceno'
+        + '&errorcode=' + encodeURIComponent(errorcode)
+        + '&apiname=' + encodeURIComponent(apiname)
+        + '&expip=' + encodeURIComponent(expip)
+        + '&ServiceCategory=' + encodeURIComponent(serviceCategory);
+    window.open(url, '_blank');
+}
+</script>
+
+</body>
+</html>
